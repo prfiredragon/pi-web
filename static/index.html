@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>pi-web — LAN console for the pi agent</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">pi</span>
+    <span class="brand-name">pi-web</span>
+    <span class="status" id="status">connecting…</span>
+  </div>
+  <div class="topbar-right">
+    <select id="session-select" aria-label="Session"></select>
+    <button class="ghost" id="new-session-btn" title="New session">＋ session</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="sidebar">
+    <section class="panel">
+      <h2>Sessions</h2>
+      <ul id="session-list" class="session-list"></ul>
+    </section>
+
+    <section class="panel" id="new-session-panel" hidden>
+      <h2>New session</h2>
+      <label>Working directory (cwd)
+        <input id="new-cwd" type="text" placeholder="/home/robert/rdev/…" value="">
+      </label>
+      <label>Name (optional)
+        <input id="new-name" type="text" placeholder="my session">
+      </label>
+      <label>Model (optional)
+        <input id="new-model" type="text" placeholder="default">
+      </label>
+      <label class="check">
+        <input id="new-no-session" type="checkbox"> no-session (ephemeral)
+      </label>
+      <button class="primary" id="create-session">Create</button>
+    </section>
+
+    <section class="panel">
+      <h2>Saved sessions</h2>
+      <label>cwd
+        <input id="saved-cwd" type="text" placeholder="/home/robert/rdev/…">
+      </label>
+      <button class="ghost" id="saved-refresh">List persisted sessions</button>
+      <ul id="saved-list" class="session-list" style="margin-top:8px"></ul>
+    </section>
+
+    <section class="panel">
+      <h2>Session info</h2>
+      <div id="session-info" class="session-info">no session selected</div>
+      <div class="controls">
+        <button class="ghost" id="abort-btn" title="Abort the current run">Abort</button>
+        <button class="ghost" id="compact-btn" title="Compact context">Compact</button>
+        <button class="ghost" id="close-btn" title="Close session">Close</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Model</h2>
+      <select id="model-select"></select>
+      <select id="thinking-select">
+        <option value="off">off</option>
+        <option value="minimal">minimal</option>
+        <option value="low">low</option>
+        <option value="medium" selected>medium</option>
+        <option value="high">high</option>
+      </select>
+    </section>
+
+    <section class="panel">
+      <h2>Events</h2>
+      <div id="event-log" class="event-log"></div>
+    </section>
+  </aside>
+
+  <main class="main">
+    <div id="transcript" class="transcript" aria-live="polite"></div>
+
+    <form id="composer" class="composer">
+      <div class="composer-row">
+        <select id="send-mode" title="How to send">
+          <option value="prompt">prompt</option>
+          <option value="steer">steer</option>
+          <option value="follow_up">follow-up</option>
+        </select>
+        <span class="hint" id="usage-hint"></span>
+      </div>
+      <textarea id="input" rows="4" placeholder="Send a message to the agent…" autofocus></textarea>
+      <div class="composer-actions">
+        <button type="submit" class="primary">Send</button>
+        <span class="kbd-hint">Ctrl+Enter</span>
+      </div>
+    </form>
+
+    <details class="raw">
+      <summary>Raw RPC</summary>
+      <textarea id="raw-input" rows="3" placeholder='{"type":"get_state"}'></textarea>
+      <button id="raw-send" class="ghost">Send raw command</button>
+      <pre id="raw-out"></pre>
+    </details>
+  </main>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
