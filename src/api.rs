@@ -34,11 +34,15 @@ pub struct PromptReq {
     pub text: String,
     #[serde(default)]
     pub streaming: Option<String>,
+    #[serde(default)]
+    pub images: Option<Vec<Value>>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct BashReq {
     pub command: String,
+    #[serde(default)]
+    pub exclude_from_context: Option<bool>,
 }
 
 pub fn json_err(status: StatusCode, msg: &str) -> Response {
@@ -58,12 +62,23 @@ struct TokenQuery {
     token: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+struct DirsQuery {
+    #[serde(default)]
+    token: Option<String>,
+    #[serde(default)]
+    path: Option<String>,
+}
+
 fn auth(token: &Option<String>, m: &Manager) -> Option<Response> {
     let expected = m.config().token.as_deref();
     match expected {
         None => None,
         Some(tok) if token.as_deref() == Some(tok) => None,
-        Some(_) => Some(json_err(StatusCode::UNAUTHORIZED, "missing or invalid ?token=")),
+        Some(_) => Some(json_err(
+            StatusCode::UNAUTHORIZED,
+            "missing or invalid ?token=",
+        )),
     }
 }
 
@@ -71,16 +86,22 @@ pub fn build_router(m: Arc<Manager>) -> Router {
     Router::new()
         .route("/", get(index))
         .route("/app.js", get(app_js))
+        .route("/marked.min.js", get(marked_js))
         .route("/style.css", get(style_css))
         .route("/health", get(health))
         .route("/config", get(config))
+        .route("/dirs", get(browse_dirs))
         .route("/sessions", get(list_sessions).post(create_session))
         .route("/saved-sessions", get(saved_sessions))
         .route("/sessions/{id}", get(get_session).delete(close_session))
         .route("/sessions/{id}/snapshot", get(snapshot))
+        .route("/sessions/{id}/tree", get(session_tree))
+        .route("/sessions/{id}/stats", get(session_stats))
         .route("/sessions/{id}/commands", get(commands))
         .route("/sessions/{id}/models", get(models))
+        .route("/sessions/{id}/thinking-levels", get(thinking_levels))
         .route("/sessions/{id}/stderr", get(stderr_tail))
+        .route("/sessions/{id}/export", get(export_session_html))
         .route("/sessions/{id}/command", post(raw_command))
         .route("/sessions/{id}/prompt", post(prompt))
         .route("/sessions/{id}/abort", post(abort))
@@ -105,17 +126,33 @@ async fn config(State(m): State<Arc<Manager>>) -> Json<Value> {
         "allowedRoots": c.allowed_roots,
         "requestTimeoutSecs": c.request_timeout_secs,
         "tokenRequired": c.token.is_some(),
+        "sessionDir": c.session_dir,
     }))
 }
 
 async fn index() -> Response {
-    html_response(include_str!("../static/index.html"), "text/html; charset=utf-8")
+    html_response(
+        include_str!("../static/index.html"),
+        "text/html; charset=utf-8",
+    )
 }
 async fn app_js() -> Response {
-    html_response(include_str!("../static/app.js"), "application/javascript; charset=utf-8")
+    html_response(
+        include_str!("../static/app.js"),
+        "application/javascript; charset=utf-8",
+    )
+}
+async fn marked_js() -> Response {
+    html_response(
+        include_str!("../static/marked.min.js"),
+        "application/javascript; charset=utf-8",
+    )
 }
 async fn style_css() -> Response {
-    html_response(include_str!("../static/style.css"), "text/css; charset=utf-8")
+    html_response(
+        include_str!("../static/style.css"),
+        "text/css; charset=utf-8",
+    )
 }
 
 fn html_response(body: &str, content_type: &str) -> Response {
@@ -126,23 +163,31 @@ fn html_response(body: &str, content_type: &str) -> Response {
         .unwrap()
 }
 
+async fn browse_dirs(State(m): State<Arc<Manager>>, Query(q): Query<DirsQuery>) -> Response {
+    if let Some(r) = auth(&q.token, &m) {
+        return r;
+    }
+    match m.browse_dirs(q.path.as_deref()) {
+        Ok(v) => (StatusCode::OK, Json(v)).into_response(),
+        Err(e) => json_err(StatusCode::BAD_REQUEST, &e),
+    }
+}
+
 async fn list_sessions(State(m): State<Arc<Manager>>, Query(q): Query<TokenQuery>) -> Response {
     if let Some(r) = auth(&q.token, &m) {
         return r;
     }
-    let out: Vec<Value> = m
-        .list()
-        .await
-        .into_iter()
-        .map(|h| {
-            json!({
-                "id": h.id,
-                "cwd": h.cwd.to_string_lossy(),
-                "alive": h.is_alive(),
-                "created": h.created_at.elapsed().as_secs(),
-            })
-        })
-        .collect();
+    let handles = m.list().await;
+    let mut out: Vec<Value> = Vec::with_capacity(handles.len());
+    for h in handles {
+        out.push(json!({
+            "id": h.id,
+            "cwd": h.cwd.to_string_lossy(),
+            "name": h.get_name().await,
+            "alive": h.is_alive(),
+            "created": h.created_at.elapsed().as_secs(),
+        }));
+    }
     (StatusCode::OK, Json(json!({ "sessions": out }))).into_response()
 }
 
@@ -168,17 +213,18 @@ async fn create_session(
     {
         Ok(h) => (
             StatusCode::CREATED,
-            Json(json!({ "id": h.id, "cwd": h.cwd.to_string_lossy() })),
+            Json(json!({
+                "id": h.id,
+                "cwd": h.cwd.to_string_lossy(),
+                "name": h.get_name().await,
+            })),
         )
             .into_response(),
         Err(e) => json_err(StatusCode::BAD_REQUEST, &e),
     }
 }
 
-async fn saved_sessions(
-    State(m): State<Arc<Manager>>,
-    Query(q): Query<SavedQuery>,
-) -> Response {
+async fn saved_sessions(State(m): State<Arc<Manager>>, Query(q): Query<SavedQuery>) -> Response {
     if let Some(r) = auth(&q.token, &m) {
         return r;
     }
@@ -257,6 +303,50 @@ async fn snapshot(
     (st, body).into_response()
 }
 
+async fn session_tree(
+    State(m): State<Arc<Manager>>,
+    Path(id): Path<String>,
+    Query(q): Query<TokenQuery>,
+) -> Response {
+    if let Some(r) = auth(&q.token, &m) {
+        return r;
+    }
+    let h = match m.get(&id).await {
+        Ok(h) => h,
+        Err(e) => return json_err(StatusCode::NOT_FOUND, &e),
+    };
+    let (st, body) = reply(
+        h.request(
+            json!({ "type": "get_tree" }),
+            Duration::from_secs(m.config().request_timeout_secs),
+        )
+        .await,
+    );
+    (st, body).into_response()
+}
+
+async fn session_stats(
+    State(m): State<Arc<Manager>>,
+    Path(id): Path<String>,
+    Query(q): Query<TokenQuery>,
+) -> Response {
+    if let Some(r) = auth(&q.token, &m) {
+        return r;
+    }
+    let h = match m.get(&id).await {
+        Ok(h) => h,
+        Err(e) => return json_err(StatusCode::NOT_FOUND, &e),
+    };
+    let (st, body) = reply(
+        h.request(
+            json!({ "type": "get_session_stats" }),
+            Duration::from_secs(m.config().request_timeout_secs),
+        )
+        .await,
+    );
+    (st, body).into_response()
+}
+
 async fn commands(
     State(m): State<Arc<Manager>>,
     Path(id): Path<String>,
@@ -301,6 +391,28 @@ async fn models(
     (st, body).into_response()
 }
 
+async fn thinking_levels(
+    State(m): State<Arc<Manager>>,
+    Path(id): Path<String>,
+    Query(q): Query<TokenQuery>,
+) -> Response {
+    if let Some(r) = auth(&q.token, &m) {
+        return r;
+    }
+    let h = match m.get(&id).await {
+        Ok(h) => h,
+        Err(e) => return json_err(StatusCode::NOT_FOUND, &e),
+    };
+    let (st, body) = reply(
+        h.request(
+            json!({ "type": "get_available_thinking_levels" }),
+            Duration::from_secs(m.config().request_timeout_secs),
+        )
+        .await,
+    );
+    (st, body).into_response()
+}
+
 async fn stderr_tail(
     State(m): State<Arc<Manager>>,
     Path(id): Path<String>,
@@ -310,8 +422,70 @@ async fn stderr_tail(
         return r;
     }
     match m.get(&id).await {
-        Ok(h) => (StatusCode::OK, Json(json!({ "stderr": h.stderr_tail().await }))).into_response(),
+        Ok(h) => (
+            StatusCode::OK,
+            Json(json!({ "stderr": h.stderr_tail().await })),
+        )
+            .into_response(),
         Err(e) => json_err(StatusCode::NOT_FOUND, &e),
+    }
+}
+
+async fn export_session_html(
+    State(m): State<Arc<Manager>>,
+    Path(id): Path<String>,
+    Query(q): Query<TokenQuery>,
+) -> Response {
+    if let Some(r) = auth(&q.token, &m) {
+        return r;
+    }
+    let h = match m.get(&id).await {
+        Ok(h) => h,
+        Err(e) => return json_err(StatusCode::NOT_FOUND, &e),
+    };
+    let tmp_path = std::env::temp_dir().join(format!("pi-web-export-{id}.html"));
+    let out_str = tmp_path.to_string_lossy().to_string();
+    let resp = h
+        .request(
+            json!({ "type": "export_html", "outputPath": out_str }),
+            Duration::from_secs(m.config().request_timeout_secs),
+        )
+        .await;
+    match resp {
+        Ok(v) => {
+            if v.get("success").and_then(|s| s.as_bool()) == Some(true) {
+                let path = v
+                    .get("data")
+                    .and_then(|d| d.get("path"))
+                    .and_then(|p| p.as_str())
+                    .unwrap_or(&out_str);
+                match std::fs::read_to_string(path) {
+                    Ok(html) => {
+                        let _ = std::fs::remove_file(path);
+                        Response::builder()
+                            .status(StatusCode::OK)
+                            .header("content-type", "text/html; charset=utf-8")
+                            .header(
+                                "content-disposition",
+                                format!("inline; filename=\"pi-session-{id}.html\""),
+                            )
+                            .body(axum::body::Body::from(html))
+                            .unwrap()
+                    }
+                    Err(e) => json_err(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &format!("failed to read exported HTML: {e}"),
+                    ),
+                }
+            } else {
+                let err = v
+                    .get("error")
+                    .and_then(|e| e.as_str())
+                    .unwrap_or("export_html failed");
+                json_err(StatusCode::BAD_REQUEST, err)
+            }
+        }
+        Err(e) => json_err(StatusCode::BAD_GATEWAY, &e),
     }
 }
 
@@ -330,7 +504,10 @@ async fn raw_command(
     } else if let Some(c) = body.get("command") {
         c.clone()
     } else {
-        return json_err(StatusCode::BAD_REQUEST, "command must be a JSON RPC object");
+        return json_err(
+            StatusCode::BAD_REQUEST,
+            "command must be a JSON RPC object",
+        );
     };
     let h = match m.get(&id).await {
         Ok(h) => h,
@@ -356,9 +533,21 @@ async fn prompt(
         Ok(h) => h,
         Err(e) => return json_err(StatusCode::NOT_FOUND, &e),
     };
+    let mut payload = json!({
+        "type": "prompt",
+        "message": req.text,
+    });
+    if let Some(sb) = req.streaming {
+        payload["streamingBehavior"] = Value::String(sb);
+    }
+    if let Some(imgs) = req.images {
+        if !imgs.is_empty() {
+            payload["images"] = Value::Array(imgs);
+        }
+    }
     let (st, body) = reply(
         h.request(
-            json!({ "type": "prompt", "message": req.text, "streamingBehavior": req.streaming.as_deref() }),
+            payload,
             Duration::from_secs(m.config().request_timeout_secs),
         )
         .await,
@@ -378,7 +567,10 @@ async fn abort(
         Ok(h) => h,
         Err(e) => return json_err(StatusCode::NOT_FOUND, &e),
     };
-    let (st, body) = reply(h.request(json!({ "type": "abort" }), Duration::from_secs(10)).await);
+    let (st, body) = reply(
+        h.request(json!({ "type": "abort" }), Duration::from_secs(10))
+            .await,
+    );
     (st, body).into_response()
 }
 
@@ -395,9 +587,16 @@ async fn run_bash(
         Ok(h) => h,
         Err(e) => return json_err(StatusCode::NOT_FOUND, &e),
     };
+    let mut payload = json!({
+        "type": "bash",
+        "command": req.command,
+    });
+    if let Some(ex) = req.exclude_from_context {
+        payload["excludeFromContext"] = Value::Bool(ex);
+    }
     let (st, body) = reply(
         h.request(
-            json!({ "type": "bash", "command": req.command }),
+            payload,
             Duration::from_secs(m.config().request_timeout_secs),
         )
         .await,

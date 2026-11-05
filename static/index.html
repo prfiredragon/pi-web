@@ -1,127 +1,375 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>pi-web — LAN console for the pi agent</title>
-<link rel="stylesheet" href="/style.css">
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>pi-web — Agent Console for pi.dev</title>
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-<header class="topbar">
-  <div class="brand">
-    <span class="logo">pi</span>
-    <span class="brand-name">pi-web</span>
-    <span class="status" id="status">connecting…</span>
-  </div>
-  <div class="topbar-right">
-    <select id="session-select" aria-label="Session"></select>
-    <button class="ghost" id="new-session-btn" title="New session">＋ session</button>
-  </div>
-</header>
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-btn" id="sidebar-toggle" title="Toggle sidebar (Ctrl+B)" aria-label="Toggle sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="3" x2="9" y2="21"/>
+        </svg>
+      </button>
+      <div class="brand">
+        <span class="logo">π</span>
+        <span class="brand-name">pi-web</span>
+      </div>
+      <div class="status-pill" id="status-pill" data-state="connecting">
+        <span class="status-dot"></span>
+        <span id="status">connecting…</span>
+      </div>
+      <div class="session-breadcrumb" id="session-breadcrumb" hidden>
+        <span class="crumb-sep">/</span>
+        <button class="session-title-btn" id="session-title-btn" title="Click to rename session">
+          <span id="active-session-name">sess-0</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/>
+          </svg>
+        </button>
+        <span class="cwd-badge" id="active-session-cwd" title="Working directory"></span>
+      </div>
+    </div>
 
-<div class="layout">
-  <aside class="sidebar">
-    <section class="panel">
-      <h2>Sessions</h2>
-      <ul id="session-list" class="session-list"></ul>
-    </section>
+    <div class="topbar-center">
+      <div class="control-group" title="Active Model">
+        <span class="control-label">Model</span>
+        <select id="model-select" aria-label="Model">
+          <option value="">(no session)</option>
+        </select>
+        <button class="icon-btn sm" id="cycle-model-btn" title="Cycle model (Ctrl+L)">↻</button>
+      </div>
 
-    <section class="panel" id="new-session-panel" hidden>
-      <h2>New session</h2>
-      <label>Working directory (cwd)
-        <input id="new-cwd" type="text" placeholder="/home/robert/rdev/…" value="">
-      </label>
-      <label>Name (optional)
-        <input id="new-name" type="text" placeholder="my session">
-      </label>
-      <label>Model (optional)
-        <input id="new-model" type="text" placeholder="default">
-      </label>
-      <label>Thinking level
-        <select id="new-thinking">
-          <option value="medium" selected>medium</option>
+      <div class="control-group" title="Thinking / Reasoning Level (Shift+Tab)">
+        <span class="control-label">Thinking</span>
+        <select id="thinking-select" aria-label="Thinking level" data-level="medium">
           <option value="off">off</option>
           <option value="minimal">minimal</option>
           <option value="low">low</option>
+          <option value="medium" selected>medium</option>
           <option value="high">high</option>
           <option value="xhigh">xhigh</option>
           <option value="max">max</option>
         </select>
-      </label>
-      <label>Resume session (path or id, optional)
-        <input id="new-session-id" type="text" placeholder="leave empty for a new session">
-      </label>
-      <label class="check">
-        <input id="new-no-session" type="checkbox"> no-session (ephemeral)
-      </label>
-      <button class="primary" id="create-session">Create</button>
-    </section>
-
-    <section class="panel">
-      <h2>Saved sessions</h2>
-      <label>cwd
-        <input id="saved-cwd" type="text" placeholder="/home/robert/rdev/…">
-      </label>
-      <button class="ghost" id="saved-refresh">List persisted sessions</button>
-      <ul id="saved-list" class="session-list" style="margin-top:8px"></ul>
-    </section>
-
-    <section class="panel">
-      <h2>Session info</h2>
-      <div id="session-info" class="session-info">no session selected</div>
-      <div class="controls">
-        <button class="ghost" id="abort-btn" title="Abort the current run">Abort</button>
-        <button class="ghost" id="compact-btn" title="Compact context">Compact</button>
-        <button class="ghost" id="close-btn" title="Close session">Close</button>
       </div>
-    </section>
+    </div>
 
-    <section class="panel">
-      <h2>Model</h2>
-      <select id="model-select"></select>
-      <select id="thinking-select">
-        <option value="off">off</option>
-        <option value="minimal">minimal</option>
-        <option value="low">low</option>
-        <option value="medium" selected>medium</option>
-        <option value="high">high</option>
-      </select>
-    </section>
-
-    <section class="panel">
-      <h2>Events</h2>
-      <div id="event-log" class="event-log"></div>
-    </section>
-  </aside>
-
-  <main class="main">
-    <div id="transcript" class="transcript" aria-live="polite"></div>
-
-    <form id="composer" class="composer">
-      <div class="composer-row">
-        <select id="send-mode" title="How to send">
-          <option value="prompt">prompt</option>
-          <option value="steer">steer</option>
-          <option value="follow_up">follow-up</option>
-        </select>
-        <span class="hint" id="usage-hint"></span>
+    <div class="topbar-right">
+      <div class="toggle-group">
+        <button class="pill-btn active" id="toggle-thinking-btn" title="Show/hide thinking blocks (Alt+T)" aria-pressed="true">
+          <span>Thinking</span>
+        </button>
+        <button class="pill-btn" id="toggle-tools-btn" title="Expand/collapse all tool outputs (Alt+O)" aria-pressed="false">
+          <span>Tools</span>
+        </button>
       </div>
-      <textarea id="input" rows="4" placeholder="Send a message to the agent…" autofocus></textarea>
-      <div class="composer-actions">
-        <button type="submit" class="primary">Send</button>
-        <span class="kbd-hint">Ctrl+Enter</span>
+      <button class="ghost sm" id="export-html-btn" title="Export session as standalone Pi HTML">↓ HTML</button>
+      <button class="icon-btn" id="theme-toggle-btn" title="Toggle Dark/Light theme" aria-label="Toggle theme">◐</button>
+      <button class="primary sm" id="new-session-btn" title="Start a new pi session">＋ Session</button>
+    </div>
+  </header>
+
+  <div class="app-shell" id="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <nav class="sidebar-tabs" role="tablist">
+        <button class="tab-btn active" data-tab="sessions" role="tab" aria-selected="true">Sessions</button>
+        <button class="tab-btn" data-tab="tree" role="tab" aria-selected="false">Tree</button>
+        <button class="tab-btn" data-tab="commands" role="tab" aria-selected="false">Commands</button>
+        <button class="tab-btn" data-tab="inspector" role="tab" aria-selected="false">Inspector</button>
+      </nav>
+
+      <!-- TAB 1: SESSIONS -->
+      <div class="tab-pane active" id="tab-sessions" role="tabpanel">
+        <section class="panel" id="new-session-panel" hidden>
+          <div class="panel-head">
+            <h2>New Pi Session</h2>
+            <button class="icon-btn sm" id="close-new-session-panel" title="Close">✕</button>
+          </div>
+          <label>Working directory (cwd)
+            <div class="input-with-btn">
+              <input id="new-cwd" type="text" placeholder="/home/robert/rdev/…" autocomplete="off">
+              <button type="button" class="ghost sm" id="browse-cwd-btn" title="Browse folders">📁</button>
+            </div>
+          </label>
+          <div id="dir-browser" class="dir-browser" hidden>
+            <div class="dir-browser-head">
+              <button type="button" class="ghost xs" id="dir-up-btn">↑ Up</button>
+              <span id="dir-current-path" class="dir-current-path"></span>
+              <button type="button" class="primary xs" id="dir-select-btn">Use This Folder</button>
+            </div>
+            <ul id="dir-list" class="dir-list"></ul>
+          </div>
+          <label>Session name (optional)
+            <input id="new-name" type="text" placeholder="e.g. feature-auth">
+          </label>
+          <div class="form-row-2">
+            <label>Model (optional)
+              <input id="new-model" type="text" placeholder="default">
+            </label>
+            <label>Thinking
+              <select id="new-thinking">
+                <option value="medium" selected>medium</option>
+                <option value="off">off</option>
+                <option value="minimal">minimal</option>
+                <option value="low">low</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+                <option value="max">max</option>
+              </select>
+            </label>
+          </div>
+          <label>Resume session path/ID (optional)
+            <input id="new-session-id" type="text" placeholder="leave empty for fresh session">
+          </label>
+          <label class="check">
+            <input id="new-no-session" type="checkbox">
+            <span>Ephemeral (<code>--no-session</code>, not saved to disk)</span>
+          </label>
+          <div class="panel-actions">
+            <button class="primary full" id="create-session">Start Session</button>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Live Processes</h2>
+            <select id="session-select" class="sr-only" aria-label="Select session"></select>
+            <button class="ghost xs" id="refresh-sessions-btn" title="Refresh active sessions">↻</button>
+          </div>
+          <ul id="session-list" class="session-list"></ul>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Quick Actions</h2>
+          </div>
+          <div class="controls-grid">
+            <button class="ghost sm" id="reset-session-btn" title="Start a fresh conversation in this process (/new)">New (/new)</button>
+            <button class="ghost sm" id="clone-session-btn" title="Clone active branch (/clone)">Clone</button>
+            <button class="ghost sm" id="compact-btn" title="Compact conversation context (/compact)">Compact</button>
+            <button class="ghost sm danger-text" id="close-btn" title="Kill pi process and close session">Kill Process</button>
+          </div>
+        </section>
+
+        <section class="panel flex-fill">
+          <div class="panel-head">
+            <h2>Saved on Disk</h2>
+            <button class="ghost xs" id="saved-refresh" title="Load persisted sessions">↻ Refresh</button>
+          </div>
+          <div class="saved-filter-row">
+            <input id="saved-cwd" type="text" placeholder="Filter by cwd (empty = all)...">
+          </div>
+          <ul id="saved-list" class="session-list saved-sessions-list"></ul>
+        </section>
       </div>
-    </form>
 
-    <details class="raw">
-      <summary>Raw RPC</summary>
-      <textarea id="raw-input" rows="3" placeholder='{"type":"get_state"}'></textarea>
-      <button id="raw-send" class="ghost">Send raw command</button>
-      <pre id="raw-out"></pre>
-    </details>
-  </main>
-</div>
+      <!-- TAB 2: SESSION TREE & FORK -->
+      <div class="tab-pane" id="tab-tree" role="tabpanel">
+        <section class="panel flex-fill">
+          <div class="panel-head">
+            <h2>Conversation Tree</h2>
+            <button class="ghost xs" id="refresh-tree-btn" title="Reload tree">↻</button>
+          </div>
+          <input id="tree-search" type="text" class="tree-search" placeholder="Search entries…">
+          <div class="tree-filters">
+            <button class="filter-chip active" data-filter="default">Default</button>
+            <button class="filter-chip" data-filter="user-only">User</button>
+            <button class="filter-chip" data-filter="no-tools">No Tools</button>
+            <button class="filter-chip" data-filter="all">All</button>
+          </div>
+          <div id="tree-container" class="tree-container">
+            <div class="empty-hint">Select a session to inspect its tree.</div>
+          </div>
+          <div class="tree-footer" id="tree-status">0 entries</div>
+        </section>
+      </div>
 
-<script src="/app.js"></script>
+      <!-- TAB 3: SLASH COMMANDS, SKILLS & TEMPLATES -->
+      <div class="tab-pane" id="tab-commands" role="tabpanel">
+        <section class="panel flex-fill">
+          <div class="panel-head">
+            <h2>Commands &amp; Skills</h2>
+            <button class="ghost xs" id="refresh-commands-btn" title="Reload commands">↻</button>
+          </div>
+          <input id="commands-search" type="text" class="tree-search" placeholder="Filter /commands, skills, templates…">
+          <div id="commands-list" class="commands-list"></div>
+        </section>
+      </div>
+
+      <!-- TAB 4: INSPECTOR (STATE, STATS, SETTINGS, EVENTS, RAW RPC) -->
+      <div class="tab-pane" id="tab-inspector" role="tabpanel">
+        <section class="panel">
+          <h2>Session State &amp; Queue</h2>
+          <div id="session-info" class="session-info">no session selected</div>
+          <div class="settings-toggles">
+            <label class="check">
+              <input type="checkbox" id="auto-compact-toggle" checked>
+              <span>Auto-compaction</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="auto-retry-toggle" checked>
+              <span>Auto-retry on transient errors</span>
+            </label>
+          </div>
+          <div class="form-row-2" style="margin-top:6px">
+            <label>Steering mode
+              <select id="steering-mode-select">
+                <option value="one-at-a-time">one-at-a-time</option>
+                <option value="all">all</option>
+              </select>
+            </label>
+            <label>Follow-up mode
+              <select id="followup-mode-select">
+                <option value="one-at-a-time">one-at-a-time</option>
+                <option value="all">all</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Raw RPC Console</h2>
+          </div>
+          <textarea id="raw-input" rows="2" placeholder='{"type":"get_state"}'></textarea>
+          <div class="panel-actions" style="margin-top:6px">
+            <button id="raw-send" class="ghost sm full">Send RPC Command</button>
+          </div>
+          <pre id="raw-out" class="raw-out"></pre>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Process Stderr</h2>
+            <button class="ghost xs" id="refresh-stderr-btn">↻</button>
+          </div>
+          <pre id="stderr-out" class="stderr-out">(empty)</pre>
+        </section>
+
+        <section class="panel flex-fill">
+          <div class="panel-head">
+            <h2>Live Event Stream</h2>
+            <button class="ghost xs" id="clear-events-btn">Clear</button>
+          </div>
+          <div id="event-log" class="event-log"></div>
+        </section>
+      </div>
+    </aside>
+
+    <div class="sidebar-resizer" id="sidebar-resizer" title="Drag to resize sidebar"></div>
+
+    <main class="main">
+      <!-- Transcript area -->
+      <div id="transcript" class="transcript" aria-live="polite">
+        <div class="empty-state" id="empty-state">
+          <div class="empty-logo">π</div>
+          <h2>pi-web Agent Console</h2>
+          <p>Create or select a Pi session from the sidebar to start coding, running shell commands, and navigating session branches.</p>
+          <div class="empty-shortcuts">
+            <div><kbd>Enter</kbd> / <kbd>Ctrl+Enter</kbd> Send prompt (or Steer while running)</div>
+            <div><kbd>Alt+Enter</kbd> Queue Follow-up</div>
+            <div><kbd>!cmd</kbd> Run Bash in context · <kbd>!!cmd</kbd> Run Bash (omit from context)</div>
+            <div><kbd>/</kbd> Slash commands, skills &amp; templates</div>
+            <div><kbd>Shift+Tab</kbd> Cycle thinking · <kbd>Alt+T</kbd> Toggle thinking · <kbd>Alt+O</kbd> Toggle tools</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Extension widgets (aboveEditor) -->
+      <div id="widgets-above" class="extension-widgets" hidden></div>
+
+      <!-- Active run / retry / compaction / queue banner -->
+      <div id="run-banner" class="run-banner" hidden>
+        <div class="run-banner-status">
+          <span class="spinner"></span>
+          <span id="run-banner-text">Agent is working…</span>
+        </div>
+        <div class="run-banner-actions">
+          <button type="button" class="ghost xs" id="abort-bash-btn" hidden>Abort Bash</button>
+          <button type="button" class="ghost xs" id="abort-retry-btn" hidden>Stop Retry</button>
+          <button type="button" class="danger xs" id="abort-btn" title="Abort current run (Escape)">■ Stop (Esc)</button>
+        </div>
+      </div>
+
+      <div id="queue-banner" class="queue-banner" hidden>
+        <div class="queue-items" id="queue-items"></div>
+        <button type="button" class="ghost xs" id="clear-queue-btn" title="Pop queued messages back to editor (Alt+Up)">↑ Restore to Editor (Alt+Up)</button>
+      </div>
+
+      <!-- Composer -->
+      <form id="composer" class="composer" data-mode="prompt" data-thinking="medium">
+        <!-- Attached images preview -->
+        <div id="image-attachments" class="image-attachments" hidden></div>
+
+        <!-- Slash command autocomplete popup -->
+        <div id="slash-menu" class="slash-menu" hidden></div>
+
+        <div class="composer-top">
+          <div class="composer-mode-group">
+            <select id="send-mode" title="Delivery mode">
+              <option value="prompt">Prompt</option>
+              <option value="steer">Steer (next turn)</option>
+              <option value="follow_up">Follow-up (when idle)</option>
+              <option value="bash">! Bash (in context)</option>
+              <option value="bash_silent">!! Bash (no context)</option>
+            </select>
+            <span class="mode-indicator" id="mode-indicator">Ready</span>
+          </div>
+
+          <div class="usage-bar-wrap" id="usage-bar-wrap" title="Context window usage &amp; session cost">
+            <div class="context-meter">
+              <div class="context-meter-fill" id="context-meter-fill" style="width: 0%"></div>
+            </div>
+            <span class="hint" id="usage-hint">0 tokens · $0.00</span>
+          </div>
+        </div>
+
+        <textarea id="input" rows="3" placeholder="Ask Pi anything, type / for commands &amp; skills, or prefix with ! to run bash…" autofocus></textarea>
+
+        <div class="composer-bottom">
+          <div class="composer-tools">
+            <label class="icon-btn sm" title="Attach image (or paste / drag &amp; drop)">
+              <input type="file" id="image-input" accept="image/*" multiple hidden>
+              <span>🖼 Image</span>
+            </label>
+            <button type="button" class="ghost xs" id="insert-slash-btn" title="Browse /commands and skills">/ Commands</button>
+            <button type="button" class="ghost xs" id="insert-bash-btn" title="Switch to !bash command">! Bash</button>
+          </div>
+          <div class="composer-actions">
+            <span class="kbd-hint" id="send-kbd-hint">Enter to send · Shift+Enter newline</span>
+            <button type="submit" class="primary" id="send-btn">Send</button>
+          </div>
+        </div>
+      </form>
+
+      <!-- Extension widgets (belowEditor) -->
+      <div id="widgets-below" class="extension-widgets" hidden></div>
+
+      <!-- Extension status bar -->
+      <footer id="ext-statusbar" class="ext-statusbar" hidden></footer>
+    </main>
+  </div>
+
+  <!-- Extension UI Dialog Modal -->
+  <div id="ext-modal-backdrop" class="modal-backdrop" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="ext-modal-title">
+      <div class="modal-head">
+        <h3 id="ext-modal-title">Extension Request</h3>
+        <span id="ext-modal-timer" class="modal-timer" hidden></span>
+      </div>
+      <div id="ext-modal-message" class="modal-message"></div>
+      <div id="ext-modal-body" class="modal-body"></div>
+      <div id="ext-modal-actions" class="modal-actions"></div>
+    </div>
+  </div>
+
+  <!-- Toast notifications -->
+  <div id="toast-container" class="toast-container" aria-live="assertive"></div>
+
+  <script src="/marked.min.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>

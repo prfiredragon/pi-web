@@ -15,6 +15,7 @@ static REQ_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub struct PiHandle {
     pub id: String,
     pub cwd: PathBuf,
+    pub name: Arc<Mutex<Option<String>>>,
     pub created_at: Instant,
     stdin_tx: tokio::sync::mpsc::UnboundedSender<String>,
     events: broadcast::Sender<Value>,
@@ -28,7 +29,12 @@ fn next_req_id() -> String {
     format!("req-{}", REQ_COUNTER.fetch_add(1, Ordering::Relaxed))
 }
 
-pub fn spawn(pi_bin: &str, cwd: &str, extra_args: &[String]) -> Result<Arc<PiHandle>, String> {
+pub fn spawn(
+    pi_bin: &str,
+    cwd: &str,
+    initial_name: Option<&str>,
+    extra_args: &[String],
+) -> Result<Arc<PiHandle>, String> {
     let mut cmd = Command::new(pi_bin);
     cmd.current_dir(cwd)
         .arg("--mode")
@@ -59,10 +65,12 @@ pub fn spawn(pi_bin: &str, cwd: &str, extra_args: &[String]) -> Result<Arc<PiHan
 
     let (stdin_tx, mut stdin_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
     let (events_tx, _) = broadcast::channel::<Value>(2048);
-    let pending: Arc<Mutex<Vec<(String, String, oneshot::Sender<Value>)>>> = Arc::new(Mutex::new(Vec::new()));
+    let pending: Arc<Mutex<Vec<(String, String, oneshot::Sender<Value>)>>> =
+        Arc::new(Mutex::new(Vec::new()));
     let alive = Arc::new(AtomicBool::new(true));
     let stderr_tail = Arc::new(Mutex::new(Vec::<String>::new()));
     let child_arc = Arc::new(Mutex::new(Some(child)));
+    let name_arc = Arc::new(Mutex::new(initial_name.map(|s| s.to_string())));
 
     // writer: push one JSON line per message to the child's stdin
     tokio::spawn(async move {
@@ -83,6 +91,7 @@ pub fn spawn(pi_bin: &str, cwd: &str, extra_args: &[String]) -> Result<Arc<PiHan
         let pending = pending.clone();
         let events = events_tx.clone();
         let alive = alive.clone();
+        let name_arc = name_arc.clone();
         async move {
             let mut lines = tokio::io::BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -102,11 +111,32 @@ pub fn spawn(pi_bin: &str, cwd: &str, extra_args: &[String]) -> Result<Arc<PiHan
                     .unwrap_or("")
                     .to_string();
 
+                if rtype == "session_info_changed" {
+                    let new_name = rec
+                        .get("name")
+                        .and_then(|n| n.as_str())
+                        .map(|s| s.to_string());
+                    *name_arc.lock().await = new_name;
+                }
+
                 // Only responses resolve a pending request. Events can carry their own
                 // `id` (e.g. bash_execution_update) and must never be treated as a response.
                 let is_response = rtype == "response" || rtype == "extension_ui_response";
                 if is_response {
-                    let id = rec.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    if rec.get("command").and_then(|c| c.as_str()) == Some("get_state") {
+                        if let Some(sname) = rec
+                            .get("data")
+                            .and_then(|d| d.get("sessionName"))
+                            .and_then(|n| n.as_str())
+                        {
+                            *name_arc.lock().await = Some(sname.to_string());
+                        }
+                    }
+                    let id = rec
+                        .get("id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     let cmd = rec
                         .get("command")
                         .and_then(|c| c.as_str())
@@ -153,7 +183,7 @@ pub fn spawn(pi_bin: &str, cwd: &str, extra_args: &[String]) -> Result<Arc<PiHan
             while let Ok(Some(line)) = lines.next_line().await {
                 let mut tail = stderr_tail.lock().await;
                 tail.push(line);
-                if tail.len() > 60 {
+                if tail.len() > 80 {
                     tail.remove(0);
                 }
             }
@@ -163,6 +193,7 @@ pub fn spawn(pi_bin: &str, cwd: &str, extra_args: &[String]) -> Result<Arc<PiHan
     Ok(Arc::new(PiHandle {
         id: format!("sess-{}", SESSION_COUNTER.fetch_add(1, Ordering::Relaxed)),
         cwd: PathBuf::from(cwd),
+        name: name_arc,
         created_at: Instant::now(),
         stdin_tx,
         events: events_tx,
@@ -176,6 +207,14 @@ pub fn spawn(pi_bin: &str, cwd: &str, extra_args: &[String]) -> Result<Arc<PiHan
 impl PiHandle {
     pub fn is_alive(&self) -> bool {
         self.alive.load(Ordering::Relaxed)
+    }
+
+    pub async fn get_name(&self) -> Option<String> {
+        self.name.lock().await.clone()
+    }
+
+    pub async fn set_name(&self, name: Option<String>) {
+        *self.name.lock().await = name;
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<Value> {
@@ -211,6 +250,13 @@ impl PiHandle {
             .and_then(|t| t.as_str())
             .unwrap_or("")
             .to_string();
+        let new_session_name = if kind == "set_session_name" {
+            obj.get("name")
+                .and_then(|n| n.as_str())
+                .map(|s| s.to_string())
+        } else {
+            None
+        };
         let line = serde_json::to_string(&cmd).map_err(|e| e.to_string())?;
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.push((id.clone(), kind, tx));
@@ -221,7 +267,14 @@ impl PiHandle {
         }
 
         match tokio::time::timeout(timeout, rx).await {
-            Ok(Ok(rec)) => Ok(rec),
+            Ok(Ok(rec)) => {
+                if let Some(n) = new_session_name {
+                    if rec.get("success").and_then(|s| s.as_bool()) == Some(true) {
+                        self.set_name(if n.is_empty() { None } else { Some(n) }).await;
+                    }
+                }
+                Ok(rec)
+            }
             Ok(Err(_)) => {
                 self.remove_pending(&id).await;
                 Err("response channel closed".into())

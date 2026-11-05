@@ -45,7 +45,9 @@ pub async fn events_ws(
 async fn handle_events(mut socket: WebSocket, m: Arc<Manager>) {
     let mut global = m.subscribe_global();
     let _ = socket
-        .send(Message::text(json!({ "type": "hello", "kind": "global" }).to_string()))
+        .send(Message::text(
+            json!({ "type": "hello", "kind": "global" }).to_string(),
+        ))
         .await;
     loop {
         tokio::select! {
@@ -88,7 +90,9 @@ async fn handle_session(mut socket: WebSocket, id: String, m: Arc<Manager>) {
         Ok(h) => h,
         Err(e) => {
             let _ = socket
-                .send(Message::text(json!({ "type": "error", "error": e }).to_string()))
+                .send(Message::text(
+                    json!({ "type": "error", "error": e }).to_string(),
+                ))
                 .await;
             return;
         }
@@ -100,15 +104,42 @@ async fn handle_session(mut socket: WebSocket, id: String, m: Arc<Manager>) {
 
     send(
         &sink_tx,
-        &json!({ "type": "hello", "sessionId": id, "cwd": handle.cwd.to_string_lossy() }),
+        &json!({
+            "type": "hello",
+            "sessionId": id,
+            "cwd": handle.cwd.to_string_lossy(),
+            "name": handle.get_name().await,
+        }),
     );
 
-    match handle.request(json!({ "type": "get_messages" }), timeout).await {
-        Ok(resp) => send(&sink_tx, &json!({ "type": "history", "response": resp })),
-        Err(e) => send(&sink_tx, &json!({ "type": "error", "error": e })),
-    }
-    if let Ok(resp) = handle.request(json!({ "type": "get_session_stats" }), timeout).await {
-        send(&sink_tx, &json!({ "type": "stats", "response": resp }));
+    // Fetch initial session data concurrently without blocking the WS loop
+    {
+        let h = handle.clone();
+        let s = sink_tx.clone();
+        tokio::spawn(async move {
+            if let Ok(resp) = h.request(json!({ "type": "get_state" }), timeout).await {
+                send(&s, &json!({ "type": "state", "response": resp }));
+            }
+            match h.request(json!({ "type": "get_messages" }), timeout).await {
+                Ok(resp) => send(&s, &json!({ "type": "history", "response": resp })),
+                Err(e) => send(&s, &json!({ "type": "error", "error": e })),
+            }
+            if let Ok(resp) = h.request(json!({ "type": "get_session_stats" }), timeout).await {
+                send(&s, &json!({ "type": "stats", "response": resp }));
+            }
+            if let Ok(resp) = h.request(json!({ "type": "get_available_models" }), timeout).await {
+                send(&s, &json!({ "type": "models", "response": resp }));
+            }
+            if let Ok(resp) = h
+                .request(json!({ "type": "get_available_thinking_levels" }), timeout)
+                .await
+            {
+                send(&s, &json!({ "type": "thinking_levels", "response": resp }));
+            }
+            if let Ok(resp) = h.request(json!({ "type": "get_commands" }), timeout).await {
+                send(&s, &json!({ "type": "commands", "response": resp }));
+            }
+        });
     }
 
     loop {
