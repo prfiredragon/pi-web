@@ -73,8 +73,16 @@ async function selectSession(id) {
   connectSessionSocket(id);
   const st = await api(`/sessions/${id}`).catch(() => null);
   if (st && st.data) renderState(st.data);
+  const err = await api(`/sessions/${id}/stderr`).catch(() => null);
+  if (err && err.stderr && err.stderr.length) {
+    info_append(`stderr: ${err.stderr.slice(-3).join('\n')}`);
+  }
   const snap = await api(`/sessions/${id}/snapshot`).catch(() => null);
   if (snap && snap.data && Array.isArray(snap.data.messages)) renderHistory(snap.data.messages);
+}
+
+function info_append(line) {
+  $('#session-info').appendChild(el('div', 'info-line dim', line));
 }
 
 function renderState(d) {
@@ -325,6 +333,8 @@ $('#create-session').addEventListener('click', async () => {
         cwd,
         name: $('#new-name').value.trim() || null,
         model: $('#new-model').value.trim() || null,
+        thinking: $('#new-thinking').value || null,
+        session: $('#new-session-id').value.trim() || null,
         no_session: $('#new-no-session').checked,
       }),
     });
@@ -435,6 +445,13 @@ async function loadModels() {
 // boot
 (async () => {
   connectGlobalSocket();
+  try {
+    const cfg = await api('/config');
+    if (cfg.defaultCwd && !$('#new-cwd').value) $('#new-cwd').value = cfg.defaultCwd;
+    if (cfg.defaultCwd && !$('#saved-cwd').value) $('#saved-cwd').value = cfg.defaultCwd;
+  } catch (e) {
+    console.warn('config fetch failed', e);
+  }
   await refreshSessions();
   const sel = $('#session-select');
   if (sel.value) {
