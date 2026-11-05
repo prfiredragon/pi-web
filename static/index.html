@@ -79,6 +79,7 @@
         <button class="tab-btn" data-tab="tree" role="tab" aria-selected="false">Tree</button>
         <button class="tab-btn" data-tab="commands" role="tab" aria-selected="false">Commands</button>
         <button class="tab-btn" data-tab="inspector" role="tab" aria-selected="false">Inspector</button>
+        <button class="sidebar-close-btn" id="sidebar-close-btn" type="button" title="Hide panel (Ctrl+B)" aria-label="Hide panel">✕</button>
       </nav>
 
       <!-- TAB 1: SESSIONS -->
@@ -259,6 +260,8 @@
       </div>
     </aside>
 
+    <div class="sidebar-backdrop" id="sidebar-backdrop" hidden></div>
+
     <div class="sidebar-resizer" id="sidebar-resizer" title="Drag to resize sidebar"></div>
 
     <main class="main">
@@ -268,6 +271,10 @@
           <div class="empty-logo">π</div>
           <h2>pi-web Agent Console</h2>
           <p>Create or select a Pi session from the sidebar to start coding, running shell commands, and navigating session branches.</p>
+          <div class="empty-actions">
+            <button type="button" class="ghost sm" id="empty-open-sidebar-btn">☰ Sessions Panel</button>
+            <button type="button" class="primary sm" id="empty-new-session-btn">＋ New Session</button>
+          </div>
           <div class="empty-shortcuts">
             <div><kbd>Enter</kbd> / <kbd>Ctrl+Enter</kbd> Send prompt (or Steer while running)</div>
             <div><kbd>Alt+Enter</kbd> Queue Follow-up</div>

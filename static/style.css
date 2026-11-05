@@ -433,8 +433,10 @@ label select {
 .app-shell {
   display: flex;
   height: calc(100vh - 48px);
+  height: calc(100dvh - 48px);
   width: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 .sidebar {
@@ -451,7 +453,18 @@ label select {
 }
 
 .sidebar.collapsed {
-  display: none;
+  display: none !important;
+}
+
+.sidebar-backdrop {
+  position: fixed;
+  inset: 48px 0 0 0;
+  background: rgba(0, 0, 0, 0.58);
+  backdrop-filter: blur(2px);
+  z-index: 95;
+}
+.sidebar-backdrop[hidden] {
+  display: none !important;
 }
 
 .sidebar-resizer {
@@ -465,13 +478,13 @@ label select {
 body.resizing .sidebar-resizer {
   background: var(--accent);
 }
-.sidebar.collapsed + .sidebar-resizer {
+.sidebar.collapsed ~ .sidebar-resizer {
   display: none;
 }
 
 .sidebar-tabs {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  display: flex;
+  align-items: center;
   border-bottom: 1px solid var(--border);
   background: var(--panel);
   padding: 4px;
@@ -480,6 +493,8 @@ body.resizing .sidebar-resizer {
 }
 
 .tab-btn {
+  flex: 1;
+  min-width: 0;
   border: none;
   background: transparent;
   color: var(--muted);
@@ -487,6 +502,9 @@ body.resizing .sidebar-resizer {
   font-size: 11px;
   border-radius: 5px;
   text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .tab-btn:hover {
   color: var(--text);
@@ -496,6 +514,36 @@ body.resizing .sidebar-resizer {
   background: var(--accent-bg);
   color: var(--accent);
   font-weight: 700;
+}
+
+.sidebar-close-btn {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--muted);
+  flex-shrink: 0;
+  font-size: 12px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sidebar-close-btn:hover {
+  color: var(--text);
+  border-color: var(--accent);
+  background: var(--panel-hover);
+}
+
+#sidebar-toggle {
+  flex-shrink: 0;
+}
+#sidebar-toggle.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-bg);
 }
 
 .tab-pane {
@@ -867,7 +915,7 @@ body.resizing .sidebar-resizer {
   scroll-behavior: smooth;
 }
 
-. transcript > * {
+.transcript > * {
   max-width: 960px;
   width: 100%;
   margin-left: auto;
@@ -880,6 +928,14 @@ body.resizing .sidebar-resizer {
   max-width: 500px;
   padding: 32px 20px;
   color: var(--muted);
+}
+.empty-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
 }
 .empty-logo {
   width: 48px;
@@ -1576,13 +1632,66 @@ body.expand-tools .tool-output.expandable .output-preview {
 .toast.error { border-left: 4px solid var(--red); }
 
 @media (max-width: 860px) {
-  .topbar-center { display: none; }
+  .topbar {
+    padding: 0 8px;
+    gap: 6px;
+  }
+  .topbar-left, .topbar-right {
+    gap: 5px;
+  }
+  .topbar-center {
+    display: none;
+  }
+  .cwd-badge,
+  #export-html-btn {
+    display: none;
+  }
   .sidebar {
     position: fixed;
     top: 48px;
     left: 0;
     bottom: 0;
+    width: min(88vw, 350px);
+    min-width: 0;
+    max-width: 88vw;
     z-index: 100;
-    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.5);
+    box-shadow: 8px 0 24px rgba(0, 0, 0, 0.55);
+  }
+  .sidebar.collapsed {
+    display: none !important;
+  }
+  .sidebar-resizer {
+    display: none !important;
+  }
+  .main {
+    padding: 8px 10px;
+  }
+  .msg-actions {
+    opacity: 1;
+  }
+  .tree-fork-btn {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 560px) {
+  .brand-name,
+  .crumb-sep,
+  .toggle-group,
+  .kbd-hint {
+    display: none;
+  }
+  .session-title-btn {
+    max-width: 110px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .composer-top {
+    flex-wrap: wrap;
+    gap: 4px;
+  }
+  .mode-indicator {
+    display: none;
   }
 }

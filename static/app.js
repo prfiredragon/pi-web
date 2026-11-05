@@ -327,6 +327,9 @@ async function refreshSessions() {
 async function selectSession(id) {
   if (!id) return;
   currentSession = id;
+  if (typeof isMobileViewport === 'function' && isMobileViewport()) {
+    setSidebarCollapsed(true);
+  }
   currentAssistant = null;
   toolElementsById.clear();
   bashCardsById.clear();
@@ -521,6 +524,7 @@ function updateCommandsTab() {
     card.addEventListener('click', () => {
       const inp = $('#input');
       inp.value = `/${c.name} `;
+      if (isMobileViewport()) setSidebarCollapsed(true);
       inp.focus();
       updateComposerModeUI();
     });
@@ -1044,6 +1048,7 @@ function handleRpcResponse(resp) {
         if (resp.data?.text) {
           $('#input').value = resp.data.text;
         }
+        if (isMobileViewport()) setSidebarCollapsed(true);
         sendRpc({ type: 'get_state' });
         sendRpc({ type: 'get_messages' });
         loadSessionTree();
@@ -1759,6 +1764,7 @@ async function send(overrideMode = null) {
     }
     if (cmdWord === 'tree') {
       $('#input').value = '';
+      setSidebarCollapsed(false);
       switchSidebarTab('tree');
       loadSessionTree();
       return;
@@ -1855,9 +1861,60 @@ $$('.tab-btn').forEach((btn) => {
   btn.addEventListener('click', () => switchSidebarTab(btn.dataset.tab));
 });
 
-// Sidebar collapse & resize
+// Sidebar collapse, mobile drawer & resize
+function isMobileViewport() {
+  return window.matchMedia('(max-width: 860px)').matches;
+}
+
+function setSidebarCollapsed(collapsed) {
+  const sidebar = $('#sidebar');
+  const backdrop = $('#sidebar-backdrop');
+  const toggleBtn = $('#sidebar-toggle');
+  const isCollapsed = Boolean(collapsed);
+  if (sidebar) {
+    sidebar.classList.toggle('collapsed', isCollapsed);
+  }
+  if (backdrop) {
+    backdrop.hidden = isCollapsed || !isMobileViewport();
+  }
+  if (toggleBtn) {
+    toggleBtn.classList.toggle('active', !isCollapsed);
+    toggleBtn.setAttribute('aria-expanded', String(!isCollapsed));
+  }
+}
+
+function toggleSidebar() {
+  const sidebar = $('#sidebar');
+  setSidebarCollapsed(!sidebar.classList.contains('collapsed'));
+}
+
 $('#sidebar-toggle').addEventListener('click', () => {
-  $('#sidebar').classList.toggle('collapsed');
+  toggleSidebar();
+});
+
+$('#sidebar-close-btn')?.addEventListener('click', () => {
+  setSidebarCollapsed(true);
+});
+
+$('#sidebar-backdrop')?.addEventListener('click', () => {
+  setSidebarCollapsed(true);
+});
+
+$('#empty-open-sidebar-btn')?.addEventListener('click', () => {
+  setSidebarCollapsed(false);
+  switchSidebarTab('sessions');
+});
+
+$('#empty-new-session-btn')?.addEventListener('click', () => {
+  $('#new-session-btn').click();
+});
+
+window.addEventListener('resize', () => {
+  const sidebar = $('#sidebar');
+  const backdrop = $('#sidebar-backdrop');
+  if (backdrop && sidebar) {
+    backdrop.hidden = sidebar.classList.contains('collapsed') || !isMobileViewport();
+  }
 });
 
 (() => {
@@ -1947,10 +2004,11 @@ $('#thinking-select').addEventListener('change', (e) => {
 
 // New Session Panel & Directory Browser
 $('#new-session-btn').addEventListener('click', () => {
+  setSidebarCollapsed(false);
   switchSidebarTab('sessions');
   const panel = $('#new-session-panel');
-  panel.hidden = !panel.hidden;
-  if (!panel.hidden) $('#new-cwd').focus();
+  panel.hidden = false;
+  $('#new-cwd').focus();
 });
 $('#close-new-session-panel').addEventListener('click', () => {
   $('#new-session-panel').hidden = true;
@@ -2313,6 +2371,11 @@ document.addEventListener('keydown', (e) => {
 // BOOTSTRAP
 // ============================================================
 (async () => {
+  if (isMobileViewport()) {
+    setSidebarCollapsed(true);
+  } else {
+    setSidebarCollapsed(false);
+  }
   connectGlobalSocket();
   try {
     const cfg = await api('/config');
